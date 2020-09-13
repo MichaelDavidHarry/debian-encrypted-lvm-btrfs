@@ -61,11 +61,13 @@ sed -i "s,GRUB_CMDLINE_LINUX=\"\(.*\)\",GRUB_CMDLINE_LINUX=\"\1 cryptdevice=$CRY
 
 read -p "Repeat the 'Install GRUB' step. Then return to this script at the 'Finish the installation' step. Press any key to resume ..."
 
+# Mount things for chroot.
 mount --bind /dev /target/dev
 mount --bind /proc /target/proc
 mount --bind /sys /target/sys
 mount --bind /run /target/run
 
+# Chroot into the new system. Install LVM, cryptsetup, and snapper. Set up crypttab, fstab, and snapper.
 chroot /target /bin/bash -c "
 apt install lvm2 cryptsetup snapper -y
 
@@ -96,6 +98,7 @@ snapper --no-dbus -c root create --description initial
 snapper --no-dbus -c home create --description initial
 snapper --no-dbus -c log create --description initial"
 
+# Make a keyfile and add it to the LUKS container so the encryption password will not have to be entered twice when the system boots. Update cryptsetup-initramfs so the keyfile will be copied into the initramfs when that is generated.
 mkdir -m0700 /target/etc/keys
 ( umask 0077 && dd if=/dev/urandom bs=1 count=64 of=/target/etc/keys/root.key conv=fsync )
 cryptsetup luksAddKey $CRYPT_BLOCK_DEVICE /target/etc/keys/root.key

@@ -47,7 +47,7 @@ cd /
 # Unmount Btrfs partition, and remount the subvolumes in the correct mount points.
 umount /target
 mount "/dev/$LVM_VG_NAME/root" /target -o subvol=@
-mkdir -p /target/home /target/var/log .btrfs
+mkdir -p /target/home /target/var/log /target/.btrfs
 mount "/dev/$LVM_VG_NAME/root" /target/home -o subvol=@home
 mount "/dev/$LVM_VG_NAME/root" /target/var/log -o subvol=@log
 

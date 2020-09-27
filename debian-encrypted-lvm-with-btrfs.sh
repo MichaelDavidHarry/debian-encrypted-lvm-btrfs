@@ -69,7 +69,7 @@ mount --bind /run /target/run
 
 # Chroot into the new system. Install LVM, cryptsetup, and snapper. Set up crypttab, fstab, and snapper.
 chroot /target /bin/bash -c "
-apt install lvm2 cryptsetup snapper -y
+apt install lvm2 cryptsetup snapper btrfs-progs -y
 
 CRYPT_DM_NAME=\"$CRYPT_DM_NAME\"
 CRYPT_BLOCK_DEVICE=\"$CRYPT_BLOCK_DEVICE\"

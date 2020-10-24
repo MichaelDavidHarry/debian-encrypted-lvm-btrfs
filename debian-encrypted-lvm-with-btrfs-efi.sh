@@ -23,6 +23,9 @@ modprobe dm_crypt
 # Setup encrypted volume.
 cryptsetup --type luks1 -y -v luksFormat "$CRYPT_BLOCK_DEVICE"
 
+CRYPT_BLOCK_DEVICE_UUID=`blkid -o value -s UUID "$CRYPT_BLOCK_DEVICE"`
+EFI_BLOCK_DEVICE_UUID=`blkid -o value -s UUID "$EFI_BLOCK_DEVICE"`
+
 # Open encrypted volume.
 cryptsetup open "$CRYPT_BLOCK_DEVICE" "$CRYPT_DM_NAME"
 
@@ -44,6 +47,10 @@ btrfs subvol create @home
 btrfs subvol create @snapshots
 btrfs subvol create @log
 
+btrfs subvol create @-snapshots
+btrfs subvol create @home-snapshots
+btrfs subvol create @log-snapshots
+
 cd /
 
 # Unmount Btrfs partition, and remount the subvolumes in the correct mount points.
@@ -54,7 +61,7 @@ mount "/dev/$LVM_VG_NAME/root" /target/home -o subvol=@home
 mount "/dev/$LVM_VG_NAME/root" /target/var/log -o subvol=@log
 mount "$EFI_BLOCK_DEVICE" /target/boot/efi
 
-read -p "Install the system packages and GRUB now. The GRUB install should fail. Return here after it fails. Press any key to resume ..."
+read -p "Install the system packages and GRUB now. The GRUB install should fail. Return here after it fails. Press any key to resume..."
 
 # Enable cryptodisk in GRUB, so GRUB install will work. 
 echo 'GRUB_ENABLE_CRYPTODISK=y' >> /target/etc/default/grub
@@ -62,7 +69,7 @@ echo 'GRUB_ENABLE_CRYPTODISK=y' >> /target/etc/default/grub
 # Add cryptdevice, root, and rootflags to default kernel cmdline.
 sed -i "s,GRUB_CMDLINE_LINUX=\"\(.*\)\",GRUB_CMDLINE_LINUX=\"\1 cryptdevice=$CRYPT_BLOCK_DEVICE:$CRYPT_DM_NAME root=/dev/$LVM_VG_NAME/root rootflags=subvol=@\"," /target/etc/default/grub
 
-read -p "Repeat the 'Install GRUB' step. Then return to this script at the 'Finish the installation' step. Press any key to resume ..."
+read -p "Repeat the 'Install GRUB' step. Then return to this script before rebooting. Press any key to resume..."
 
 # Mount things for chroot.
 mount --bind /dev /target/dev
@@ -76,17 +83,21 @@ apt install lvm2 cryptsetup snapper btrfs-progs -y
 
 CRYPT_DM_NAME=\"$CRYPT_DM_NAME\"
 CRYPT_BLOCK_DEVICE=\"$CRYPT_BLOCK_DEVICE\"
+CRYPT_BLOCK_DEVICE_UUID=\"$CRYPT_BLOCK_DEVICE_UUID\"
 LVM_VG_NAME=\"$LVM_VG_NAME\"
 EFI_BLOCK_DEVICE=\"$EFI_BLOCK_DEVICE\"
+EFI_BLOCK_DEVICE_UUID=\"$EFI_BLOCK_DEVICE_UUID\"
 
-echo \"$CRYPT_DM_NAME  $CRYPT_BLOCK_DEVICE   /etc/keys/root.key    luks,key-slot=1\" >> /etc/crypttab
+echo \"$CRYPT_DM_NAME  UUID=$CRYPT_BLOCK_DEVICE_UUID   /etc/keys/root.key    luks,key-slot=1\" >> /etc/crypttab
 echo \"/dev/mapper/$LVM_VG_NAME-root   /   btrfs   defaults,subvol=@   0   0\" >> /etc/fstab
 echo \"/dev/mapper/$LVM_VG_NAME-root   /.btrfs   btrfs   defaults   0   0\" >> /etc/fstab
-echo \"/dev/mapper/$LVM_VG_NAME-root   /.snapshots   btrfs   defaults,subvol=@snapshots   0   0\" >> /etc/fstab
+echo \"/dev/mapper/$LVM_VG_NAME-root   /.snapshots   btrfs   defaults,subvol=@-snapshots   0   0\" >> /etc/fstab
+echo \"/dev/mapper/$LVM_VG_NAME-root   /home/.snapshots   btrfs   defaults,subvol=@home-snapshots   0   0\" >> /etc/fstab
+echo \"/dev/mapper/$LVM_VG_NAME-root   /var/log/.snapshots   btrfs   defaults,subvol=@log-snapshots   0   0\" >> /etc/fstab
 echo \"/dev/mapper/$LVM_VG_NAME-root   /home   btrfs   defaults,subvol=@home  0   0\" >> /etc/fstab
 echo \"/dev/mapper/$LVM_VG_NAME-root   /var/log   btrfs   defaults,subvol=@log   0   0\" >> /etc/fstab
 echo \"/dev/mapper/$LVM_VG_NAME-swap   none   swap   defaults   0   0\" >> /etc/fstab
-echo \"$EFI_BLOCK_DEVICE   /boot/efi   vfat   defaults   0   0\" >> /etc/fstab
+echo \"UUID=$EFI_BLOCK_DEVICE_UUID   /boot/efi   vfat   defaults   0   0\" >> /etc/fstab
 
 snapper --no-dbus -c root create-config /
 snapper --no-dbus -c home create-config /home
@@ -97,11 +108,19 @@ mkdir .snapshots
 
 mount .snapshots
 
-chmod 750 .snapshots
+rm -rf /home/.snapshots
+mkdir /home/.snapshots
 
-snapper --no-dbus -c root create --description initial
-snapper --no-dbus -c home create --description initial
-snapper --no-dbus -c log create --description initial"
+mount /home/.snapshots
+
+chmod 750 /home/.snapshots
+
+rm -rf /var/log/.snapshots
+mkdir /var/log/.snapshots
+
+mount /var/log/.snapshots
+
+chmod 750 /var/log/.snapshots"
 
 # Make a keyfile and add it to the LUKS container so the encryption password will not have to be entered twice when the system boots. Update cryptsetup-initramfs so the keyfile will be copied into the initramfs when that is generated.
 mkdir -m0700 /target/etc/keys
@@ -110,4 +129,10 @@ cryptsetup luksAddKey $CRYPT_BLOCK_DEVICE /target/etc/keys/root.key
 echo "KEYFILE_PATTERN=\"/etc/keys/*.key\"" >> /target/etc/cryptsetup-initramfs/conf-hook
 echo UMASK=0077 >> /target/etc/initramfs-tools/initramfs.conf
 
-echo 'Finish the installation and reboot.'
+chroot /target /bin/bash -c "update-initramfs -u
+
+snapper --no-dbus -c root create --description initial
+snapper --no-dbus -c home create --description initial
+snapper --no-dbus -c log create --description initial"
+
+echo 'Reboot into the new installation.'
